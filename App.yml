@@ -32,7 +32,7 @@ Parameters:
 
 Resources:
 # EC2
-  EC2Instance01:
+  EC2Instance:
     Type: AWS::EC2::Instance
     Properties:
       Tags:
@@ -56,30 +56,10 @@ Resources:
       UserData: !Base64 |
         #! /bin/bash
         yum update -y
-  EC2Instance02:
-    Type: AWS::EC2::Instance
-    Properties:
-      Tags:
-        - Key: Name
-          Value: !Sub ${PJPrefix}-${EC2InstanceName}-02
-      ImageId: !Ref EC2InstanceAMI
-      InstanceType: !Ref EC2InstanceInstanceType
-      KeyName: !Ref KeyPairName
-      DisableApiTermination: false
-      EbsOptimized: false
-      BlockDeviceMappings:
-        - DeviceName: /dev/xvda
-          Ebs:
-            DeleteOnTermination: true
-            VolumeType: !Ref EC2InstanceVolumeType
-            VolumeSize: !Ref EC2InstanceVolumeSize
-      SecurityGroupIds:
-        - !Ref ManagedSecurityGroup
-        - !Ref WebSecurityGroup
-      SubnetId: { "Fn::ImportValue": !Sub "${PJPrefix}-public-subnet-c" }
-      UserData: !Base64 |
-        #! /bin/bash
-        yum update -y
+        sudo yum install -y httpd
+        sudo service httpd start 
+        sudo touch /var/www/html/index.html
+        echo "wellcome hello world! Cloudformation for ALB" >> /var/www/html/index.html
 # セキュリティグループ
   ManagedSecurityGroup:
     Type: AWS::EC2::SecurityGroup
@@ -125,16 +105,26 @@ Resources:
         - Key: Name
           Value: !Sub ${PJPrefix}-web-sg
 # Rule
-  WebSecurityGroupIngress: 
+  WebSecurityGroupIngress:
     Type: AWS::EC2::SecurityGroupIngress
     Properties: 
       IpProtocol: tcp
       FromPort: 80
       ToPort: 80
-      SourceSecurityGroupId: !GetAtt [ ALBSecurityGroup, GroupId ] 
+      SourceSecurityGroupId: !GetAtt [ ALBSecurityGroup, GroupId ]
       GroupId: !GetAtt [ WebSecurityGroup, GroupId ]
+# ElasticIP
+  ElasticIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+  ElasticIPAssociate:
+    Type: AWS::EC2::EIPAssociation
+    Properties: 
+      AllocationId: !GetAtt ElasticIP.AllocationId
+      InstanceId: !Ref EC2Instance
 # ターゲットグループ
-  TargetGroup: 
+  TargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
       VpcId: { "Fn::ImportValue": !Sub "${PJPrefix}-vpc" } 
@@ -148,12 +138,12 @@ Resources:
       UnhealthyThresholdCount: 2
       HealthCheckTimeoutSeconds: 5
       HealthCheckIntervalSeconds: 10
-      Matcher: 
+      Matcher:
         HttpCode: 200
-      Tags: 
+      Tags:
         - Key: Name
           Value: !Sub ${PJPrefix}-${InternetALBName}-tg
-      TargetGroupAttributes: 
+      TargetGroupAttributes:
         - Key: deregistration_delay.timeout_seconds
           Value: 300
         - Key: stickiness.enabled
@@ -162,16 +152,15 @@ Resources:
           Value: lb_cookie
         - Key: stickiness.lb_cookie.duration_seconds
           Value: 86400
-      Targets: 
-        - Id: !Ref EC2Instance01
-        - Id: !Ref EC2Instance02
+      Targets:
+        - Id: !Ref EC2Instance
           Port: 80
 # ALB
-  InternetALB: 
+  InternetALB:
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
-    Properties: 
+    Properties:
       Name: !Sub ${PJPrefix}-${InternetALBName}-alb
-      Tags: 
+      Tags:
         - Key: Name
           Value: !Sub ${PJPrefix}-${InternetALBName}-alb
       Scheme: internet-facing
